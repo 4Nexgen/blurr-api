@@ -1,4 +1,4 @@
-# Personal Life-Biography Chatbot API
+# Blurr - API
 
 ## Python
 
