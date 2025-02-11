@@ -5,6 +5,6 @@ services:
     image: arneil/blurr-api:latest
     container_name: blurr-api
     env_file:
-      - .env
+      - /home/pc/var/app/blurr-api/.env
     ports:
       - 8000:8000
