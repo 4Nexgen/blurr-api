@@ -8,5 +8,3 @@ services:
       - .env
     ports:
       - 8000:8000
-    volumes:
-      - /home/pc/var/app/blurr-api/.env:/app/.env
