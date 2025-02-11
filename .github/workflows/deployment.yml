@@ -15,7 +15,7 @@ jobs:
 
       - name: Log in to Docker Hub
         run: |
-          docker login -u "policanarneilpaul@gmail.com" -p "^U5a2yv+z&t$bd;"
+          docker login -u "policanarneilpaul@gmail.com" -p ${{ secrets.DOCKER_TOKEN }}
 
       - name: Build and Push Docker Image
         run: |
