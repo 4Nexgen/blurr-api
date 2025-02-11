@@ -19,8 +19,8 @@ jobs:
 
       - name: Build and Push Docker Image
         run: |
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/blurr-api:latest .
-          docker push ${{ secrets.DOCKER_USERNAME }}/blurr-api:latest
+          docker build -t ${{ secrets.DOCKER_NAMESPACE }}/blurr-api:latest .
+          docker push ${{ secrets.DOCKER_NAMESPACE }}/blurr-api:latest
 
       - name: Deploy to Linux VM
         uses: appleboy/ssh-action@v0.1.10
@@ -29,6 +29,6 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            docker pull ${{ secrets.DOCKER_USERNAME }}/blurr-api:latest
+            docker pull ${{ secrets.DOCKER_NAMESPACE }}/blurr-api:latest
             docker-compose down
             docker-compose up -d
