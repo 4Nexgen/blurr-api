@@ -1,14 +1,17 @@
-FROM python:3.9
+# Use the official Python image
+FROM python:3.10
 
-WORKDIR /code
+# Set working directory
+WORKDIR /app
 
-COPY ./requirements.txt /code/requirements.txt
+# Copy files
+COPY . /app
 
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
+# Expose port
+EXPOSE 8000
 
-
-COPY ./app /code/app
-
-
-CMD ["fastapi", "run", "app/main.py", "--port", "80"]
+# Start the FastAPI server
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
