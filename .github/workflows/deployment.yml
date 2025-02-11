@@ -27,7 +27,4 @@ jobs:
           mkdir ~/.ssh
           echo -e "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/ssh-key
           chmod 400 ~/.ssh/ssh-key
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ssh-key pc@${{ secrets.VM_HOST }} -p 2105 \
-            'cd /home/pc/var/app/blurr-api && \
-            docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }} && \
-            sh deploy.sh'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ssh-key pc@${{ secrets.VM_HOST }} -p 2105'cd /home/pc/var/app/blurr-api && docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_TOKEN }} && sh deploy.sh'
