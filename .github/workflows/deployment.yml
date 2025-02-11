@@ -30,4 +30,4 @@ jobs:
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/ssh-key pc@${{ secrets.VM_HOST }} -p 2105 \
             'cd /home/pc/var/app/blurr-api && \
             docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }} && \
-            sh deploy_production.sh'
+            sh deploy.sh'
