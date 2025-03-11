@@ -1,10 +1,17 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket
 from fastapi.responses import FileResponse
 
-from src.models.cli import CLICommand
 from src.rules.cli import CLIRule
 
+import uuid
+import json
+
+from typing import Dict
+
 CLIEndpoint = APIRouter()
+
+active_websockets: Dict[str, WebSocket] = {}
+
 
 @CLIEndpoint.get("/directory/list")
 def directory_list():
@@ -43,26 +50,82 @@ def file_open(file_path: str):
             }
         )
 
-@CLIEndpoint.get("/command/execute")
-def command_execute(cli_command: CLICommand):
+@CLIEndpoint.websocket("/connect-socket/")
+async def command_execute(websocket: WebSocket):
+    await websocket.accept()
+    socket_id = str(uuid.uuid1())
+    active_websockets[socket_id] = websocket
+
     try:
-        executed_command = CLIRule().command_execute(cli_command)
-        if not executed_command:
-            raise HTTPException(
-                status_code=400, 
-                detail={
-                    "message": "Something's went wrong!",
-                    "data": None
-                },
-                headers=None
-            )
-        
-        return executed_command
+        while True:
+            try:
+                raw_data = await websocket.receive_text()
+                parsed = json.loads(raw_data)
+
+                command = parsed.get("command", "").strip()
+                create_sol = parsed.get("create_sol", False)
+
+                if not command and not create_sol:
+                    await websocket.send_text(json.dumps({
+                        "message": "No command provided"
+                    }))
+                    continue
+
+                result = CLIRule().command_execute(command, create_sol=create_sol)
+
+                await websocket.send_text(json.dumps({
+                    "message": "Command executed",
+                    "output": result
+                }))
+
+            except json.JSONDecodeError as e:
+                await websocket.send_text(json.dumps({
+                    "message": "Invalid JSON format",
+                    "error": str(e)
+                }))
+            except Exception as e:
+                await websocket.send_text(json.dumps({
+                    "message": "Command execution error",
+                    "error": str(e)
+                }))
+
     except Exception as e:
-        raise HTTPException(
-            status_code=500, 
-            detail={
-                "message": f"Internal Server Error: {e}",
-                "data": None
-            }
-        )
+        await websocket.send_text(json.dumps({
+            "message": "Internal Server Error",
+            "error": str(e)
+        }))
+    finally:
+        active_websockets.pop(socket_id, None)
+
+@CLIEndpoint.websocket("/connect-socket/deploy/")
+async def deploy_contract_ws(websocket: WebSocket):
+    await websocket.accept()
+
+    socket_id = str(uuid.uuid1())
+    active_websockets[socket_id] = websocket
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            payload = json.loads(data)
+
+            contract_language = payload.get("language")
+            file_name = payload.get("file_name")
+            contract_code = payload.get("code")
+
+            if contract_language == "solidity":
+                result = CLIRule().deploy_solidity(file_name, contract_code)
+            # elif contract_language == "rust":
+            #     result = deploy_rust(file_name, contract_code)
+            else:
+                result = "[Error] Unknown contract language."
+
+            await websocket.send_text(result)
+
+    except Exception as e:
+        await websocket.send_text(json.dumps({
+            "message": "Internal Server Error",
+            "error": str(e)
+        }))
+    finally:
+        active_websockets.pop(socket_id, None)
