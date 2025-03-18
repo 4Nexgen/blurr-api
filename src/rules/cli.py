@@ -119,6 +119,8 @@ contract Storage {
 
             file_path = contracts_dir / file_name
 
+            print("file path", file_path)
+
             if file_path.exists():
                 return f"[Info] File '{file_name}' already exists."
 
