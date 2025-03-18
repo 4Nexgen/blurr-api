@@ -53,6 +53,8 @@ class CLIRule:
     def directory_list(self) -> StreamingResponse:
         try:
             contracts_dir = self.CLI_DIR_PATH / "contracts"
+
+            print("directory path", contracts_dir)
             
             if not contracts_dir.exists() or not contracts_dir.is_dir():
                 raise HTTPException(status_code=400, detail={"error": "Contracts folder not found"})
