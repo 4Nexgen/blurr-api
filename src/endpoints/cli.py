@@ -19,7 +19,7 @@ def directory_list():
         return CLIRule().directory_list()
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail={
                 "message": f"Internal Server Error: {e}",
                 "data": None
@@ -40,7 +40,7 @@ def file_open(file_path: str):
                 headers=None
             )
         
-        return FileResponse(file, media_type="application/octet-stream", filename=file.name)
+        return file
     except Exception as e:
         raise HTTPException(
             status_code=500, 
@@ -58,69 +58,42 @@ async def command_execute(websocket: WebSocket):
 
     try:
         while True:
+            raw_data = await websocket.receive_text()
+
             try:
-                raw_data = await websocket.receive_text()
                 parsed = json.loads(raw_data)
-
-                command = parsed.get("command", "").strip()
-                create_sol = parsed.get("create_sol", False)
-
-                if not command and not create_sol:
-                    await websocket.send_text(json.dumps({
-                        "message": "No command provided"
-                    }))
-                    continue
-
-                result = CLIRule().command_execute(command, create_sol=create_sol)
-
-                await websocket.send_text(json.dumps({
-                    "message": "Command executed",
-                    "output": result
-                }))
-
             except json.JSONDecodeError as e:
                 await websocket.send_text(json.dumps({
                     "message": "Invalid JSON format",
                     "error": str(e)
                 }))
-            except Exception as e:
+                continue
+
+            command = parsed.get("command", "").strip()
+            if not command:
                 await websocket.send_text(json.dumps({
-                    "message": "Command execution error",
-                    "error": str(e)
+                    "message": "No command provided"
                 }))
+                continue
 
-    except Exception as e:
-        await websocket.send_text(json.dumps({
-            "message": "Internal Server Error",
-            "error": str(e)
-        }))
-    finally:
-        active_websockets.pop(socket_id, None)
+            execution_result = CLIRule().command_execute(command)
 
-@CLIEndpoint.websocket("/connect-socket/deploy/")
-async def deploy_contract_ws(websocket: WebSocket):
-    await websocket.accept()
+            if command.endswith((".pvm", ".contract")):
+                deploy_result = CLIRule().deploy_contract(command)
 
-    socket_id = str(uuid.uuid1())
-    active_websockets[socket_id] = websocket
+                if deploy_result:
+                    await websocket.send_text(json.dumps({
+                        "status": "success",
+                        "message": "Contract deployed successfully",
+                        "deploy_output": deploy_result
+                    }))
+                    continue
 
-    try:
-        while True:
-            data = await websocket.receive_text()
-            payload = json.loads(data)
-
-            contract_language = payload.get("language")
-            file_name = payload.get("file_name")
-            contract_code = payload.get("code")
-
-            if contract_language == "solidity":
-                result = CLIRule().deploy_solidity(file_name, contract_code)
-            # elif contract_language == "rust":
-            #     result = deploy_rust(file_name, contract_code)
-            else:
-                result = "[Error] Unknown contract language."
-
-            await websocket.send_text(result)
+            await websocket.send_text(json.dumps({
+                "status": "success",
+                "message": "Command executed",
+                "command_output": execution_result
+            }))
 
     except Exception as e:
         await websocket.send_text(json.dumps({
