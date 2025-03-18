@@ -1,10 +1,17 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket
 from fastapi.responses import FileResponse
 
-from src.models.cli import CLICommand
 from src.rules.cli import CLIRule
 
+import uuid
+import json
+
+from typing import Dict
+
 CLIEndpoint = APIRouter()
+
+active_websockets: Dict[str, WebSocket] = {}
+
 
 @CLIEndpoint.get("/directory/list")
 def directory_list():
@@ -12,7 +19,7 @@ def directory_list():
         return CLIRule().directory_list()
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail={
                 "message": f"Internal Server Error: {e}",
                 "data": None
@@ -33,7 +40,7 @@ def file_open(file_path: str):
                 headers=None
             )
         
-        return FileResponse(file, media_type="application/octet-stream", filename=file.name)
+        return file
     except Exception as e:
         raise HTTPException(
             status_code=500, 
@@ -43,26 +50,55 @@ def file_open(file_path: str):
             }
         )
 
-@CLIEndpoint.get("/command/execute")
-def command_execute(cli_command: CLICommand):
+@CLIEndpoint.websocket("/connect-socket/")
+async def command_execute(websocket: WebSocket):
+    await websocket.accept()
+    socket_id = str(uuid.uuid1())
+    active_websockets[socket_id] = websocket
+
     try:
-        executed_command = CLIRule().command_execute(cli_command)
-        if not executed_command:
-            raise HTTPException(
-                status_code=400, 
-                detail={
-                    "message": "Something's went wrong!",
-                    "data": None
-                },
-                headers=None
-            )
-        
-        return executed_command
+        while True:
+            raw_data = await websocket.receive_text()
+
+            try:
+                parsed = json.loads(raw_data)
+            except json.JSONDecodeError as e:
+                await websocket.send_text(json.dumps({
+                    "message": "Invalid JSON format",
+                    "error": str(e)
+                }))
+                continue
+
+            command = parsed.get("command", "").strip()
+            if not command:
+                await websocket.send_text(json.dumps({
+                    "message": "No command provided"
+                }))
+                continue
+
+            execution_result = CLIRule().command_execute(command)
+
+            if command.endswith((".pvm", ".contract")):
+                deploy_result = CLIRule().deploy_contract(command)
+
+                if deploy_result:
+                    await websocket.send_text(json.dumps({
+                        "status": "success",
+                        "message": "Contract deployed successfully",
+                        "deploy_output": deploy_result
+                    }))
+                    continue
+
+            await websocket.send_text(json.dumps({
+                "status": "success",
+                "message": "Command executed",
+                "command_output": execution_result
+            }))
+
     except Exception as e:
-        raise HTTPException(
-            status_code=500, 
-            detail={
-                "message": f"Internal Server Error: {e}",
-                "data": None
-            }
-        )
+        await websocket.send_text(json.dumps({
+            "message": "Internal Server Error",
+            "error": str(e)
+        }))
+    finally:
+        active_websockets.pop(socket_id, None)
