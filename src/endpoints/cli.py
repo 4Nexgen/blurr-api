@@ -16,7 +16,19 @@ active_websockets: Dict[str, WebSocket] = {}
 @CLIEndpoint.get("/directory/list")
 def directory_list():
     try:
-        return CLIRule().directory_list()
+        directory_list = CLIRule().directory_list()
+
+        if not directory_list:
+            raise HTTPException(
+                status_code=404, 
+                detail={
+                    "message": "File not found.",
+                    "data": None
+                },
+                headers=None
+            )
+        
+        return directory_list
     except Exception as e:
         raise HTTPException(
             status_code=500,
