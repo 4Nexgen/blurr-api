@@ -4,12 +4,13 @@ from fastapi.responses import StreamingResponse
 
 from eth_account import Account
 
-import json
 from web3 import Web3
-import shlex 
 
 import subprocess
 import re
+import sys
+
+from src.helpers.stream_file import StreamFileHelper
 
 import os
 from dotenv import load_dotenv
@@ -25,52 +26,21 @@ class CLIRule:
         self.remote_home = f"/home/{self.ssh_user}"
     
         self.CLI_DIR_PATH = Path(os.getenv("CLI_DIR")) 
+
         self.RPC_URL = os.getenv("RPC_URL")
         self.PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 
         self.web3 = Web3(Web3.HTTPProvider(self.RPC_URL))
         self.account = Account.from_key(self.PRIVATE_KEY)
-
-    def stream_directory(self, directory: Path):
-        if not directory.exists() or not directory.is_dir():
-            raise ValueError(f"Provided path is not a valid directory: {directory}")
-
-        for item in directory.iterdir():
-            if item.is_dir():
-                yield {
-                    "name": item.name,
-                    "is_dir": True,
-                    "children": list(self.stream_directory(item))
-                }
-                continue
-
-            yield {
-                "name": item.name,
-                "is_dir": False,
-                "url": f"/{item.relative_to(self.CLI_DIR_PATH)}"
-            }
     
     def directory_list(self) -> StreamingResponse:
         try:
             contracts_dir = self.CLI_DIR_PATH / "contracts"
 
-            print("directory path", contracts_dir)
-            
             if not contracts_dir.exists() or not contracts_dir.is_dir():
                 raise HTTPException(status_code=400, detail={"error": "Contracts folder not found"})
 
-            return StreamingResponse(
-                iter([
-                    '[',
-                    json.dumps({
-                        "name": "contracts",
-                        "is_dir": True,
-                        "children": list(self.stream_directory(contracts_dir))
-                    }),
-                    ']'
-                ]),
-                media_type="application/json"
-            )
+            return StreamingResponse(StreamFileHelper().generate(contracts_dir), media_type="application/json")
         except Exception as e:
             raise e
     
@@ -82,70 +52,42 @@ class CLIRule:
         with open(file_path, "r", encoding="utf-8") as f:
             return f.read()
         
-    def create_solidity_file(self, file_name: str) -> str:
-        solidity_code = """// SPDX-License-Identifier: GPL-3.0
-
-pragma solidity >=0.8.2 <0.9.0;
-
-/**
-* @title Storage
-* @dev Store & retrieve value in a variable
-* @custom:dev-run-script ./scripts/deploy_with_ethers.ts
-*/
-contract Storage {
-
-    uint256 number;
-
-    /**
-    * @dev Store value in variable
-    * @param num value to store
-    */
-    function store(uint256 num) public {
-        number = num;
-    }
-
-    /**
-    * @dev Return value 
-    * @return value of 'number'
-    */
-    function retrieve() public view returns (uint256){
-        return number;
-    }
-}
-"""
+    def create_solidity_contract(self, file_name: str) -> str:
         try:
             contracts_dir = self.CLI_DIR_PATH / "contracts"
             contracts_dir.mkdir(parents=True, exist_ok=True)
 
             file_path = contracts_dir / file_name
 
-            print("file path", file_path)
-
             if file_path.exists():
                 return f"[Info] File '{file_name}' already exists."
 
-            file_path.write_text(solidity_code)
+            file_path.write_text(StreamFileHelper().solidity_code())
 
             build_command = (
                 "cd " + str(contracts_dir) + " && ./resolc --solc ./solc-static-linux " + file_name +
                 " -O3 --bin --output-dir ./build"
             )
 
-            build_result = subprocess.run(
+            build_proc = subprocess.Popen(
                 build_command,
                 shell=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True
             )
 
-            if build_result.returncode != 0:
-                return f"[File Created]\nBut build failed:\n{build_result.stderr.strip()}"
+            for line in build_proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
 
-            return f"[Success] File '{file_name}' created and built successfully.\n{build_result.stdout.strip()}"
+            build_proc.wait()
+            if build_proc.returncode != 0:
+                return "[Build Error] Failed to build contract. Check logs above."
 
+            return f"\n[Success] Contract '{file_name}' created and built successfully."
         except Exception as e:
-            return f"[Exception] Failed to create and build file: {str(e)}"
+            raise e
     
     def create_rust_contract(self, contract_name: str) -> str:
         try:
@@ -159,40 +101,46 @@ contract Storage {
                 f"\"source ~/.cargo/env && cd ~/contracts && cargo contract new {contract_name}\""
             )
 
-            result_create = subprocess.run(
+            create_proc = subprocess.Popen(
                 create_command,
                 shell=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True
             )
 
-            if result_create.returncode != 0:
-                return f"[Create Error]\n{result_create.stderr.strip()}"
+            for line in create_proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+
+            create_proc.wait()
+            if create_proc.returncode != 0:
+                return "[Create Error] Failed to create contract. Check logs above."
 
             build_command = (
                 f"{ssh_base} "
                 f"\"source ~/.cargo/env && cd ~/contracts/{contract_name} && cargo contract build\""
             )
 
-            result_build = subprocess.run(
+            build_proc = subprocess.Popen(
                 build_command,
                 shell=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True
             )
 
-            if result_build.returncode != 0:
-                return f"[Build Error]\n{result_build.stderr.strip()}"
+            for line in build_proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
 
-            return (
-                f"[Success] Contract '{contract_name}' created and built successfully.\n\n"
-                f"{result_build.stdout.strip()}"
-            )
+            build_proc.wait()
+            if build_proc.returncode != 0:
+                return "[Build Error] Failed to build contract. Check logs above."
 
+            return f"\n[Success] Contract '{contract_name}' created and built successfully."
         except Exception as e:
-            return f"[Exception] {str(e)}"
+            raise e
 
         
     def extract_solidity_filename(self, command: str) -> str | None:
@@ -204,7 +152,7 @@ contract Storage {
             file_name = self.extract_solidity_filename(command)
 
             if file_name:
-                create_result = self.create_solidity_file(file_name)
+                create_result = self.create_solidity_contract(file_name)
                 return create_result
 
             if command.startswith("cargo contract new"):
@@ -229,7 +177,7 @@ contract Storage {
             return result.stdout.strip() or "[Success] Command executed but returned no output."
 
         except Exception as e:
-            return f"[Exception] {str(e)}"
+            raise e
         
     def deploy_pvm_contract(self, pvm_file: str):
         try:
@@ -239,6 +187,9 @@ contract Storage {
 
             with open(pvm_path, 'rb') as f:
                 bytecode = f.read().hex()
+
+            sys.stdout.write("[Info] Building contract instance...\n")
+            sys.stdout.flush()
 
             abi = [
                 {
@@ -264,12 +215,21 @@ contract Storage {
 
             contract = self.web3.eth.contract(abi=abi, bytecode=bytecode)
 
+            sys.stdout.write("[Info] Estimating gas...\n")
+            sys.stdout.flush()
+
             gas_estimate = contract.constructor().estimate_gas({
                 "from": self.account.address
             })
 
             gas_price = self.web3.eth.gas_price
+
+            sys.stdout.write(f"[Info] Gas estimate: {gas_estimate}, Gas price: {gas_price}\n")
+            sys.stdout.flush()
  
+            sys.stdout.write("[Info] Building transaction...\n")
+            sys.stdout.flush()
+
             tx = contract.constructor().build_transaction({
                 "from": self.account.address,
                 "nonce": self.web3.eth.get_transaction_count(self.account.address),
@@ -278,10 +238,27 @@ contract Storage {
                 "chainId": self.web3.eth.chain_id,
             })
 
+            sys.stdout.write("[Info] Signing transaction...\n")
+            sys.stdout.flush()
+
             signed_tx = self.web3.eth.account.sign_transaction(tx, private_key=self.PRIVATE_KEY)
+
+            sys.stdout.write("[Info] Sending transaction...\n")
+            sys.stdout.flush()
+
             tx_hash = self.web3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            
+
+            sys.stdout.write(f"[Info] Transaction sent. Hash: {tx_hash.hex()}\n")
+            sys.stdout.flush()
+
+            sys.stdout.write("[Info] Waiting for transaction receipt...\n")
+            sys.stdout.flush()
+
             tx_receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash)
+
+            sys.stdout.write(f"[Success] Contract deployed at: {tx_receipt.contractAddress}\n")
+            sys.stdout.write(f"[Info] Included in block: {tx_receipt.blockNumber}\n")
+            sys.stdout.flush()
             
             return {
                 "message": "Contract deployed successfully.",
@@ -290,9 +267,8 @@ contract Storage {
                 "blocknumber": tx_receipt.blockNumber
             }
 
-            
         except Exception as e:
-            return {"error": str(e)}
+            raise e
     
     def deploy_rust_contract(self, contract_file: str):
         try:
@@ -317,24 +293,33 @@ contract Storage {
                 f"--execute\""
             )
 
-            result = subprocess.run(
+            deploy_proc = subprocess.Popen(
                 deploy_command,
                 shell=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True
             )
 
-            if result.returncode != 0:
-                return {"error": result.stderr.strip()}
+            output_lines = []
+            for line in deploy_proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                output_lines.append(line)
+
+            deploy_proc.wait()
+            full_output = ''.join(output_lines)
+
+            if deploy_proc.returncode != 0:
+                return {"error": full_output.strip()}
 
             return {
                 "message": "Rust (Ink!) contract deployed successfully.",
-                "output": result.stdout.strip()
+                "output": full_output.strip()
             }
 
         except Exception as e:
-            return {"error": str(e)}
+            raise e
     
     def deploy_contract(self, file_name: str):
         try:
@@ -345,4 +330,4 @@ contract Storage {
             else:
                 return {"error": f"Unsupported contract file format: {file_name}"}
         except Exception as e:
-            return {"error": str(e)}
+            raise e
