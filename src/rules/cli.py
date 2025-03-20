@@ -144,59 +144,16 @@ class CLIRule:
     #     except Exception as e:
     #         raise e
 
-    def run_polkatool_link(self, contract_name: str, output_file: str) -> str:
+    def create_rust_contract(self, contract_name: str) -> str:
         try:
-            contract_dir = f"contracts/{contract_name}"
-            ssh_base = (
-                f"sshpass -p '{self.ssh_password}' ssh -p {self.ssh_port} "
-                f"{self.ssh_user}@{self.ssh_host}"
-            )
-
-            link_command = (
-                f"{ssh_base} "
-                f"'cd ~/{contract_dir} && "
-                f"export PATH=$HOME/.cargo/bin:$PATH && "
-                f"polkatool link --strip --output {output_file} "
-                f"target/riscv64emac-unknown-none-polkavm/release/contract'"
-            )
-
-            link_proc = subprocess.Popen(
-                link_command,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
-            )
-
-            output_lines = []
-            for line in link_proc.stdout:
-                output_lines.append(line)
-                sys.stdout.write(line)
-                sys.stdout.flush()
-
-            link_proc.wait()
-            if link_proc.returncode != 0:
-                return f"[Link Error] Failed to run polkatool link.\nOutput:\n{''.join(output_lines)}"
-
-            return f"[Success] Polkatool link completed successfully. Output: {output_file}"
-
-        except Exception as e:
-            return f"[Exception] {str(e)}"
-    
-    def create_rust_contract(self, contract_name: str, build_only=False) -> str:
-        try:
-            contract_dir = f"contracts/{contract_name}"
-
-            ssh_base = (
-                f"sshpass -p '{self.ssh_password}' ssh -p {self.ssh_port} "
-                f"{self.ssh_user}@{self.ssh_host}"
-            )
+            contracts_dir = self.CLI_DIR_PATH / "contracts/rust-contract-template"
             
             build_command = (
-                f"{ssh_base} "
-                f"'cd ~/{contract_dir} && source ~/.cargo/env && cargo build --release'"
+                f"cd {contracts_dir} && "
+                f"cargo build --release -Z build-std=core,alloc "
+                f"--target={contracts_dir}/riscv64emac-unknown-none-polkavm.json"
             )
-
+ 
             build_proc = subprocess.Popen(
                 build_command,
                 shell=True,
@@ -212,11 +169,34 @@ class CLIRule:
             build_proc.wait()
             if build_proc.returncode != 0:
                 return "[Build Error] Failed to build contract. Check logs above."
+ 
+            contract_binary_path = os.path.join(contracts_dir, "target/riscv64emac-unknown-none-polkavm/release/contract")
+            if not os.path.isfile(contract_binary_path):
+                return f"[Error] Contract binary not found at {contract_binary_path}. Please ensure the build was successful."
+ 
+            build_result = (
+                f"cd {contracts_dir} && "
+                f"polkatool link --strip --output {contract_name} {contract_binary_path}"
+            )
+ 
+            result_proc = subprocess.Popen(
+                build_result,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
 
-            if build_only:
-                return "[Build Success] Contract built successfully."
-
-            return "[Success] Contract built."
+            result_output = []
+            for line in result_proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+ 
+            result_proc.wait()
+            if result_proc.returncode != 0:
+                return f"[Link Error] Linking failed:\n{''.join(result_output)}"
+ 
+            return f"[Success] Contract '{contract_name}' build successfully."
         except Exception as e:
             raise e
 
@@ -231,7 +211,6 @@ class CLIRule:
            if file_name:
                create_result = self.create_solidity_contract(file_name)
                return create_result
-           
 
        # This Comment is to deploy rust using command cargo contract new ///
             # if command.startswith("cargo contract new"):
@@ -257,6 +236,7 @@ class CLIRule:
            )
            if result.returncode != 0:
                return f"[Error]\n{result.stderr.strip()}"
+           
            return result.stdout.strip() or "[Success] Command executed but returned no output."
        except Exception as e:
            raise e
