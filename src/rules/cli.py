@@ -147,6 +147,7 @@ class CLIRule:
     def create_rust_contract(self, contract_name: str) -> str:
         try:
             contracts_dir = self.CLI_DIR_PATH / "contracts/rust-contract-template"
+            os.environ['PATH'] = f"/home/pc/.cargo/bin:{os.environ.get('PATH')}"
             
             build_command = (
                 f"cd {contracts_dir} && "
