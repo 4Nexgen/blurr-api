@@ -90,7 +90,7 @@ async def command_execute(websocket: WebSocket):
 
             execution_result = CLIRule().command_execute(command)
 
-            if command.endswith((".pvm", ".contract")):
+            if command.endswith((".pvm", ".polkavm")):
                 deploy_result = CLIRule().deploy_contract(command)
 
                 if deploy_result:
