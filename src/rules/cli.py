@@ -147,34 +147,12 @@ class CLIRule:
     def create_rust_contract(self, contract_name: str) -> str:
         try:
             contracts_dir = self.CLI_DIR_PATH / "contracts/rust-contract-template"
-            os.environ['PATH'] = f"/home/pc/.cargo/bin:{os.environ.get('PATH')}"
-            
-            build_command = (
-                f"cd {contracts_dir} && "
-                f"cargo +nightly build --release -Z build-std=core,alloc "
-                f"--target={contracts_dir}/riscv64emac-unknown-none-polkavm.json"
-            )
  
-            build_proc = subprocess.Popen(
-                build_command,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
-            )
+            contract_binary_path = contracts_dir / "target" / "riscv64emac-unknown-none-polkavm" / "release" / "contract"
 
-            for line in build_proc.stdout:
-                sys.stdout.write(line)
-                sys.stdout.flush()
+            if not contract_binary_path.is_file():
+                 return None
 
-            build_proc.wait()
-            if build_proc.returncode != 0:
-                return "[Build Error] Failed to build contract. Check logs above."
- 
-            contract_binary_path = os.path.join(contracts_dir, "target/riscv64emac-unknown-none-polkavm/release/contract")
-            if not os.path.isfile(contract_binary_path):
-                return f"[Error] Contract binary not found at {contract_binary_path}. Please ensure the build was successful."
- 
             build_result = (
                 f"cd {contracts_dir} && "
                 f"polkatool link --strip --output {contract_name} {contract_binary_path}"
@@ -204,7 +182,6 @@ class CLIRule:
     def extract_solidity_filename(self, command: str) -> str | None:
         match = re.search(r"([\w\d_-]+\.sol)", command)
         return match.group(1) if match else None
-
 
     def command_execute(self, command: str) -> str:
        try:
