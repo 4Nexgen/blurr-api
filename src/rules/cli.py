@@ -151,7 +151,7 @@ class CLIRule:
             
             build_command = (
                 f"cd {contracts_dir} && "
-                f"cargo build --release -Z build-std=core,alloc "
+                f"cargo +nightly build --release -Z build-std=core,alloc "
                 f"--target={contracts_dir}/riscv64emac-unknown-none-polkavm.json"
             )
  
