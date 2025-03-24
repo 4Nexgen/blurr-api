@@ -97,7 +97,7 @@ async def command_execute(websocket: WebSocket):
             ):
                 await websocket.send_text(json.dumps({
                     "status": "failed",
-                    "message": "Command executed",
+                    "message": "Command not executed",
                     "command_output": execution_result
                 }))
                 continue
