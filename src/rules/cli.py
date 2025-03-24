@@ -148,23 +148,16 @@ class CLIRule:
 
     def create_rust_contract(self, contract_name: str) -> str:
         try:
-            ssh_base = (
-                f"sshpass -p '{self.ssh_password}' ssh -p {self.ssh_port} "
-                f"{self.ssh_user}@{self.ssh_host}"
-            )
+            contracts_dir = self.CLI_DIR_PATH / "contracts/rust-contract-template"
  
-            contracts_dir = f"{ssh_base} 'cd contracts/rust-contract-template && pwd'"  
-            contracts_dir_output = subprocess.check_output(contracts_dir, shell=True, text=True).strip()
+            contract_binary_path = contracts_dir / "target" / "riscv64emac-unknown-none-polkavm" / "release" / "contract"
  
-            contract_binary_path = f"{contracts_dir_output}/target/riscv64emac-unknown-none-polkavm/release/contract"
- 
-            check_command = f"{ssh_base} 'test -f {contract_binary_path}'"
-            if subprocess.call(check_command, shell=True) != 0:
-                return None
+            if not contract_binary_path.is_file():
+                 return None
  
             build_result = (
-                f"{ssh_base} 'cd contracts/rust-contract-template && "
-                f"/home/pc/.cargo/bin/polkatool link --strip --output {contract_name} {contract_binary_path}'"
+                f"cd {contracts_dir} && "
+                f"polkatool link --strip --output {contract_name} {contract_binary_path}"
             )
  
             result_proc = subprocess.Popen(
@@ -179,13 +172,12 @@ class CLIRule:
             for line in result_proc.stdout:
                 sys.stdout.write(line)
                 sys.stdout.flush()
-                result_output.append(line)
  
             result_proc.wait()
             if result_proc.returncode != 0:
                 return f"[Link Error] Linking failed:\n{''.join(result_output)}"
  
-            return f"[Success] Contract '{contract_name}' built successfully."
+            return f"[Success] Contract '{contract_name}' build successfully."
         except Exception as e:
             raise e
 
