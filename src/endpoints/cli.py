@@ -44,7 +44,7 @@ def file_open(file_path: str):
         file = CLIRule().file_open(file_path)
         if not file:
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail={
                     "message": "File not found.",
                     "data": None
@@ -52,10 +52,10 @@ def file_open(file_path: str):
                 headers=None
             )
         
-        return file
+        return FileResponse(file, media_type="application/octet-stream", filename=file.name)
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail={
                 "message": f"Internal Server Error: {e}",
                 "data": None
@@ -89,17 +89,18 @@ async def command_execute(websocket: WebSocket):
                 continue
 
             execution_result = CLIRule().command_execute(command)
-
-            if command.endswith((".pvm", ".polkavm")):
-                deploy_result = CLIRule().deploy_contract(command)
-
-                if deploy_result:
-                    await websocket.send_text(json.dumps({
-                        "status": "success",
-                        "message": "Contract deployed successfully",
-                        "deploy_output": deploy_result
-                    }))
-                    continue
+            
+            if (
+                execution_result is None or
+                (isinstance(execution_result, dict) and "error" in execution_result) or
+                any(err in str(execution_result).lower() for err in ["[error]", "[exception]", "[build error]"])
+            ):
+                await websocket.send_text(json.dumps({
+                    "status": "failed",
+                    "message": "Command not executed",
+                    "command_output": execution_result
+                }))
+                continue
 
             await websocket.send_text(json.dumps({
                 "status": "success",

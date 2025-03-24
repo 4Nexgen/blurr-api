@@ -6,8 +6,8 @@ from eth_account import Account
 
 from web3 import Web3
 
-import json
 import subprocess
+import shlex
 import re
 import sys
 
@@ -46,12 +46,14 @@ class CLIRule:
             raise e
     
     def file_open(self, relative_path: str):
-        file_path = self.CLI_DIR_PATH / "contracts" / relative_path
-        if not file_path.exists() or not file_path.is_file():
-            return {"error": "File not found"}
-        
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read()
+        try:
+            file_path = self.CLI_DIR_PATH / "contracts" / relative_path
+            if not file_path.exists() or not file_path.is_file():
+                return None
+            
+            return file_path
+        except Exception as e:
+            raise e
         
     def create_solidity_contract(self, file_name: str) -> str:
         try:
@@ -146,16 +148,23 @@ class CLIRule:
 
     def create_rust_contract(self, contract_name: str) -> str:
         try:
-            contracts_dir = self.CLI_DIR_PATH / "contracts/rust-contract-template"
+            ssh_base = (
+                f"sshpass -p '{self.ssh_password}' ssh -p {self.ssh_port} "
+                f"{self.ssh_user}@{self.ssh_host}"
+            )
  
-            contract_binary_path = contracts_dir / "target" / "riscv64emac-unknown-none-polkavm" / "release" / "contract"
-
-            if not contract_binary_path.is_file():
-                 return None
-
+            contracts_dir = f"{ssh_base} 'cd contracts/rust-contract-template && pwd'"  
+            contracts_dir_output = subprocess.check_output(contracts_dir, shell=True, text=True).strip()
+ 
+            contract_binary_path = f"{contracts_dir_output}/target/riscv64emac-unknown-none-polkavm/release/contract"
+ 
+            check_command = f"{ssh_base} 'test -f {contract_binary_path}'"
+            if subprocess.call(check_command, shell=True) != 0:
+                return None
+ 
             build_result = (
-                f"cd {contracts_dir} && "
-                f"polkatool link --strip --output {contract_name} {contract_binary_path}"
+                f"{ssh_base} 'cd contracts/rust-contract-template && "
+                f"/home/pc/.cargo/bin/polkatool link --strip --output {contract_name} {contract_binary_path}'"
             )
  
             result_proc = subprocess.Popen(
@@ -165,17 +174,18 @@ class CLIRule:
                 stderr=subprocess.STDOUT,
                 text=True
             )
-
+ 
             result_output = []
             for line in result_proc.stdout:
                 sys.stdout.write(line)
                 sys.stdout.flush()
+                result_output.append(line)
  
             result_proc.wait()
             if result_proc.returncode != 0:
                 return f"[Link Error] Linking failed:\n{''.join(result_output)}"
  
-            return f"[Success] Contract '{contract_name}' build successfully."
+            return f"[Success] Contract '{contract_name}' built successfully."
         except Exception as e:
             raise e
 
@@ -183,41 +193,41 @@ class CLIRule:
         match = re.search(r"([\w\d_-]+\.sol)", command)
         return match.group(1) if match else None
 
-    def command_execute(self, command: str) -> str:
-       try:
-           file_name = self.extract_solidity_filename(command)
-           if file_name:
-               create_result = self.create_solidity_contract(file_name)
-               return create_result
+    # def command_execute(self, command: str) -> str:
+    #    try:
+    #        file_name = self.extract_solidity_filename(command)
+    #        if file_name:
+    #            create_result = self.create_solidity_contract(file_name)
+    #            return create_result
 
-       # This Comment is to deploy rust using command cargo contract new ///
-            # if command.startswith("cargo contract new"):
-            #     parts = command.split()
-            #     if len(parts) == 4:
-            #         contract_name = parts[-1]
-            #         return self.create_rust_contract(contract_name)
+    #    # This Comment is to deploy rust using command cargo contract new ///
+    #         # if command.startswith("cargo contract new"):
+    #         #     parts = command.split()
+    #         #     if len(parts) == 4:
+    #         #         contract_name = parts[-1]
+    #         #         return self.create_rust_contract(contract_name)
 
-           if command.startswith("polkatool"):
-                parts = command.split()
-                if len(parts) == 6:
-                    contract_name = parts[-2]
-                    return self.create_rust_contract(contract_name)
+    #        if command.startswith("polkatool"):
+    #             parts = command.split()
+    #             if len(parts) == 6:
+    #                 contract_name = parts[-2]
+    #                 return self.create_rust_contract(contract_name)
                 
-           cli_command = f"cd {self.CLI_DIR_PATH} && {command}"
+    #        cli_command = f"cd {self.CLI_DIR_PATH} && {command}"
 
-           result = subprocess.run(
-               cli_command,
-               shell=True,
-               stdout=subprocess.PIPE,
-               stderr=subprocess.PIPE,
-               text=True
-           )
-           if result.returncode != 0:
-               return f"[Error]\n{result.stderr.strip()}"
+    #        result = subprocess.run(
+    #            cli_command,
+    #            shell=True,
+    #            stdout=subprocess.PIPE,
+    #            stderr=subprocess.PIPE,
+    #            text=True
+    #        )
+    #        if result.returncode != 0:
+    #            return f"[Error]\n{result.stderr.strip()}"
            
-           return result.stdout.strip() or "[Success] Command executed but returned no output."
-       except Exception as e:
-           raise e
+    #        return result.stdout.strip() or "[Success] Command executed but returned no output."
+    #    except Exception as e:
+    #        raise e
        
     def deploy_pvm_contract(self, pvm_file: str):
         try:
@@ -364,6 +374,45 @@ class CLIRule:
  
         except Exception as e:
             raise e
+        
+    def command_execute(self, command: str) -> str:
+        try:
+            parts = shlex.split(command)
+
+            if not parts:
+                return None
+
+            if parts[0] != "contract":
+                return None
+
+            if len(parts) < 3:
+                return None
+
+            action = parts[1]
+            file_name = parts[2]
+
+            if action == "build":
+                if file_name.endswith(".sol"):
+                    return self.create_solidity_contract(file_name)
+
+                if file_name.endswith(".polkavm"):
+                    return self.create_rust_contract(file_name)
+
+                return None
+
+            if action == "deploy":
+                if file_name.endswith(".pvm"):
+                    return self.deploy_pvm_contract(file_name)
+
+                if file_name.endswith(".polkavm"):
+                    return self.deploy_rust_contract(file_name)
+
+                return None
+
+            return None
+
+        except Exception as e:
+            raise e
     
     # This comment is to deploy rust contract using .contract file ///
     # def deploy_rust_contract(self, contract_file: str):
@@ -417,13 +466,13 @@ class CLIRule:
     #     except Exception as e:
     #         raise e
     
-    def deploy_contract(self, file_name: str):
-        try:
-            if file_name.endswith(".polkavm"):
-                return self.deploy_rust_contract(file_name)
-            elif file_name.endswith(".pvm"):
-                return self.deploy_pvm_contract(file_name)
-            else:
-                return {"error": f"Unsupported contract file format: {file_name}"}
-        except Exception as e:
-            raise e
+    # def deploy_contract(self, file_name: str):
+    #     try:
+    #         if file_name.endswith(".polkavm"):
+    #             return self.deploy_rust_contract(file_name)
+    #         elif file_name.endswith(".pvm"):
+    #             return self.deploy_pvm_contract(file_name)
+    #         else:
+    #             return {"error": f"Unsupported contract file format: {file_name}"}
+    #     except Exception as e:
+    #         raise e
