@@ -42,17 +42,8 @@ def directory_list():
 def file_open(file_path: str):
     try:
         file = CLIRule().file_open(file_path)
-        if not file:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "message": "File not found.",
-                    "data": None
-                },
-                headers=None
-            )
-        
-        return FileResponse(file, media_type="application/octet-stream", filename=file.name)
+                
+        return file
     except Exception as e:
         raise HTTPException(
             status_code=500,

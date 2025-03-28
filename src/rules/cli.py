@@ -1,11 +1,12 @@
 from pathlib import Path
 from fastapi import HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 
 from eth_account import Account
 
 from web3 import Web3
 
+import json
 import subprocess
 import shlex
 import re
@@ -20,11 +21,11 @@ load_dotenv()
 class CLIRule:
     def __init__(self):
 
-        self.ssh_user = "pc"
-        self.ssh_host = "1.212.199.98"
-        self.ssh_port = "2105"
-        self.ssh_password = "Xode@2024"
-        self.remote_home = f"/home/{self.ssh_user}"
+        # self.ssh_user = "pc"
+        # self.ssh_host = "1.212.199.98"
+        # self.ssh_port = "2105"
+        # self.ssh_password = "Xode@2024"
+        # self.remote_home = f"/home/{self.ssh_user}"
     
         self.CLI_DIR_PATH = Path(os.getenv("CLI_DIR")) 
 
@@ -33,6 +34,13 @@ class CLIRule:
 
         self.web3 = Web3(Web3.HTTPProvider(self.RPC_URL))
         self.account = Account.from_key(self.PRIVATE_KEY)
+
+        self.media_types_map = {
+            'sol': 'text/plain',
+            'polkavm': 'application/octet-stream',
+            'pvm': 'application/octet-stream'
+        }
+
     
     def directory_list(self) -> StreamingResponse:
         try:
@@ -47,11 +55,18 @@ class CLIRule:
     
     def file_open(self, relative_path: str):
         try:
-            file_path = self.CLI_DIR_PATH / "contracts" / relative_path
-            if not file_path.exists() or not file_path.is_file():
-                return None
             
-            return file_path
+            file_location = self.CLI_DIR_PATH / relative_path
+            
+            if os.path.exists(file_location):
+                media_type = self.media_types_map.get(file_location, 'text/plain')
+                
+                response = FileResponse(path=file_location, media_type=media_type)
+                response.headers["Content-Disposition"] = "inline"                
+ 
+                return response
+            
+            return None
         except Exception as e:
             raise e
         
@@ -295,12 +310,12 @@ class CLIRule:
             sys.stdout.write(f"[Success] Contract deployed at: {tx_receipt.contractAddress}\n")
             sys.stdout.flush()
             
-            return {
+            return json.dumps({
                 "message": "Contract deployed successfully.",
                 "contract_address": tx_receipt.contractAddress,
                 "transaction_hash": tx_hash.hex(),
                 "blocknumber": tx_receipt.blockNumber
-            }
+            })
 
         except Exception as e:
             raise e
@@ -357,12 +372,12 @@ class CLIRule:
             
             tx_receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash)
             
-            return {
+            return json.dumps({
                 "message": "Contract deployed successfully.",
                 "contract_address": tx_receipt.contractAddress,
                 "transaction_hash": tx_hash.hex(),
                 "blocknumber": tx_receipt.blockNumber
-            }
+            })
  
         except Exception as e:
             raise e
