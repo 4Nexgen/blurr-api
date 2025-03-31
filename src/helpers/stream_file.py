@@ -8,25 +8,36 @@ load_dotenv()
 class StreamFileHelper:
     def __init__(self):
         self.CLI_DIR_PATH = Path(os.getenv("CLI_DIR"))
+        self.ALLOWED_EXTENSIONS = {".sol", ".polkavm", ".pvm"}
 
     def stream_directory(self, directory: Path):
         if not directory.exists() or not directory.is_dir():
             raise ValueError(f"Provided path is not a valid directory: {directory}")
 
+        children = []
+        is_rust_contract_template = directory.name == "rust-contract-template"
+
         for item in directory.iterdir():
             if item.is_dir():
-                yield {
-                    "name": item.name,
-                    "is_dir": True,
-                    "children": list(self.stream_directory(item))
-                }
-                continue
+                sub_children = list(self.stream_directory(item))
+                if sub_children: 
+                    children.append({
+                        "name": item.name,
+                        "is_dir": True,
+                        "children": sub_children
+                    })
+            if item.is_file():
+                if is_rust_contract_template and item.suffix == ".sol":
+                    return True
+                
+                if item.suffix in self.ALLOWED_EXTENSIONS:
+                    children.append({
+                        "name": item.name,
+                        "is_dir": False,
+                        "url": f"/{item.relative_to(self.CLI_DIR_PATH)}"
+                    })
 
-            yield {
-                "name": item.name,
-                "is_dir": False,
-                "url": f"/{item.relative_to(self.CLI_DIR_PATH)}"
-            }
+        return children
 
     def generate(self, contracts_dir: Path):
         data = {
