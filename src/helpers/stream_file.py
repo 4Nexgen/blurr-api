@@ -28,7 +28,7 @@ class StreamFileHelper:
                     })
             if item.is_file():
                 if is_rust_contract_template and item.suffix == ".sol":
-                    return True
+                    continue
                 
                 if item.suffix in self.ALLOWED_EXTENSIONS:
                     children.append({
